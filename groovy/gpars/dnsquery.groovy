@@ -52,6 +52,7 @@ class Querier extends DefaultActor {
 		try {
 			def response = queryName('www.baidu.com', dnsServer)
 			def rcode = response.getRcode()
+			//TODO : retries setting
 			counter << rcode
 		}catch(SocketTimeoutException e){
 			counter << 100
