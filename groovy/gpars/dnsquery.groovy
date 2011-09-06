@@ -6,15 +6,6 @@ import groovyx.gpars.actor.DefaultActor
 import org.xbill.DNS.*;
 
 
-def queryName(String domainName, String server) {
-	resolver = new SimpleResolver(server)
-	resolver.setTimeout(5)
-	name = Name.fromString(domainName, Name.root)
-	record = Record.newRecord(name, Type.A, DClass.IN)
-	query = Message.newQuery(record)
-	response = resolver.send(query)
-	return response
-}
 
 class Master extends DefaultActor {
 	int success = 0
@@ -22,8 +13,8 @@ class Master extends DefaultActor {
 
 	void act() {
 		loop {
-			react {boolean status ->
-				if (status)
+			react {int status ->
+				if (status == 0)
 					success ++
 				else
 					failure ++
@@ -31,23 +22,53 @@ class Master extends DefaultActor {
 		}
 	}
 
-	void onStop() {
-		println success
+	void afterStop(List undeliveredMessages) {
+		println "success: $success "
+		println "failure: $failure "
 	}
 
-	void a
+	void afterStart() {
+	}
 }
 
 class Querier extends DefaultActor {
 	String dnsServer
 	Actor counter
-
+	
 	void act() {
-		counter << true
+		try {
+			def response = queryName('www.baidu.com', dnsServer)
+			def rcode = response.getRcode()
+			counter << rcode
+			if (rcode == 0){
+				println response
+				println "$dnsServer*****************"
+			}
+
+		}catch(SocketTimeoutException e){
+			counter << 1
+		}
+	}
+
+	def queryName(String domainName, String server) {
+		def resolver = new SimpleResolver(server)
+		resolver.setTimeout(5)
+		def name = Name.fromString(domainName, Name.root)
+		def record = Record.newRecord(name, Type.A, DClass.IN)
+		def query = Message.newQuery(record)
+		def response = resolver.send(query)
+		return response
 	}
 }
+
 def master = new Master().start()
-def querier = new Querier(dnsServer:'202.120.224.6', counter:master).start()
-[querier]*.join()
+
+def queue = []
+new File('test.txt').eachLine {server ->
+	def querier = new Querier(dnsServer:server, counter:master).start()
+	queue.push(querier)
+}
+
+queue*.join()
 master.stop()
-//println queryName('www.baidu.com', '8.8.8.8')
+master.join()
