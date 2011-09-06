@@ -1,6 +1,10 @@
+
 import groovyx.gpars.actor.Actor
 import groovyx.gpars.actor.DefaultActor
+
+//@Grab(group='dnsjava', module='dnsjava', version='2.1.1')
 import org.xbill.DNS.*;
+
 
 def queryName(String domainName, String server) {
 	resolver = new SimpleResolver(server)
@@ -21,13 +25,17 @@ class Master extends DefaultActor {
 			react {boolean status ->
 				if (status)
 					success ++
-				else {
-					println success
-					terminate()
-				}
+				else
+					failure ++
 			}
 		}
 	}
+
+	void onStop() {
+		println success
+	}
+
+	void a
 }
 
 class Querier extends DefaultActor {
@@ -36,10 +44,10 @@ class Querier extends DefaultActor {
 
 	void act() {
 		counter << true
-		counter << false
 	}
 }
 def master = new Master().start()
-def querier = new Querier(dnsServer:'8.8.8.8', counter:master).start()
-[querier, master]*.join()
+def querier = new Querier(dnsServer:'202.120.224.6', counter:master).start()
+[querier]*.join()
+master.stop()
 //println queryName('www.baidu.com', '8.8.8.8')
