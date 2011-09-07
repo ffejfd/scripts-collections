@@ -5,8 +5,6 @@ import groovyx.gpars.group.DefaultPGroup
 //@Grab(group='dnsjava', module='dnsjava', version='2.1.1')
 import org.xbill.DNS.*;
 
-
-
 class Master extends DefaultActor {
 	int success = 0
 	int nodomain = 0
@@ -39,9 +37,6 @@ class Master extends DefaultActor {
 		println "server not connected : $serverNotConnected"
 		println "failure: $failure "
 	}
-
-	void afterStart() {
-	}
 }
 
 class Querier extends DefaultActor {
@@ -49,26 +44,29 @@ class Querier extends DefaultActor {
 	Actor counter
 	
 	void act() {
-		try {
-			def response = queryName('www.baidu.com', dnsServer)
-			def rcode = response.getRcode()
-			//TODO : retries setting
-			counter << rcode
-		}catch(SocketTimeoutException e){
-			counter << 100
-		}catch(PortUnreachableException e) {
-			counter << 100
-		}
+		counter << queryName('www.baidu.com', dnsServer)
 	}
 
 	def queryName(String domainName, String server) {
+		def retries = 3		
 		def resolver = new SimpleResolver(server)
-		resolver.setTimeout(5)
+		resolver.setTimeout(10)
 		def name = Name.fromString(domainName, Name.root)
 		def record = Record.newRecord(name, Type.A, DClass.IN)
 		def query = Message.newQuery(record)
-		def response = resolver.send(query)
-		return response
+		def rcode = 100
+		while (retries > 0) {
+			try {
+				rcode = resolver.send(query).getRcode()
+				if (rcode == Rcode.NOERROR)
+					return rcode
+				retries--
+			}catch(IOException e){
+				retries--
+				rcode = 100
+			}
+		}
+		return rcode
 	}
 }
 
