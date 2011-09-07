@@ -1,8 +1,9 @@
+import groovy.time.*
 import groovyx.gpars.actor.Actors
 import groovyx.gpars.actor.Actor
 import groovyx.gpars.actor.DefaultActor
 import groovyx.gpars.group.DefaultPGroup
-//@Grab(group='dnsjava', module='dnsjava', version='2.1.1')
+@Grab(group='dnsjava', module='dnsjava', version='2.1.1')
 import org.xbill.DNS.*;
 
 class Master extends DefaultActor {
@@ -50,7 +51,7 @@ class Querier extends DefaultActor {
 	def queryName(String domainName, String server) {
 		def retries = 3		
 		def resolver = new SimpleResolver(server)
-		resolver.setTimeout(10)
+		resolver.setTimeout(2)
 		def name = Name.fromString(domainName, Name.root)
 		def record = Record.newRecord(name, Type.A, DClass.IN)
 		def query = Message.newQuery(record)
@@ -58,11 +59,21 @@ class Querier extends DefaultActor {
 		while (retries > 0) {
 			try {
 				rcode = resolver.send(query).getRcode()
-				if (rcode == Rcode.NOERROR)
+				if (rcode == Rcode.NOERROR){
+					//println server
 					return rcode
+				}
 				retries--
-			}catch(IOException e){
+			}catch(SocketTimeoutException e){
 				retries--
+				rcode = 100
+			}catch(PortUnreachableException e) {
+				retries --
+				rcode = 100
+			}catch(IOException e) {
+				if (e.getMessage().equals('Too many open files'))
+					throw new RuntimeException('Too many open files')
+				retries --
 				rcode = 100
 			}
 		}
@@ -70,15 +81,30 @@ class Querier extends DefaultActor {
 	}
 }
 
+def timeStart = new Date()
+
 def master = new Master().start()
-
-Actors.defaultActorPGroup.resize 2000
+final MAX_CONCURRENCY = args[0].toInteger()
+Actors.defaultActorPGroup.resize  MAX_CONCURRENCY*2
 def queue = []
-new File('test.txt').eachLine {server ->
-	def querier = new Querier(dnsServer:server, counter:master).start()
-	queue.push(querier)
+new File('test.txt').withReader {reader ->
+	def count = 0
+	def cnt = MAX_CONCURRENCY
+	while ((server = reader.readLine()) != null) {
+		def querier = new Querier(dnsServer:server, counter:master).start()
+		queue.push(querier)
+		if (++count > cnt) {
+			queue*.join()
+			queue.clear()
+			count = 0
+		}
+	}
 }
-
-queue*.join()
+if (!queue.isEmpty())
+	queue*.join()
 master.stop()
 master.join()
+
+def timeStop = new Date()
+TimeDuration duration = TimeCategory.minus(timeStop, timeStart)
+println "Duration: $duration"
