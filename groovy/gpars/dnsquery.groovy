@@ -7,36 +7,41 @@ import groovyx.gpars.group.DefaultPGroup
 import org.xbill.DNS.*;
 
 class Master extends DefaultActor {
-	int success = 0
-	int nodomain = 0
-	int serverNotConnected = 0
-	int failure = 0
+	def success = []
+	def failure = []
+	def notConnected = []
+	def nodomain = []
 
 	void act() {
 		loop {
-			react {int status ->
-				switch (status) {
+			react {response ->
+				switch (response[0]) {
 					case Rcode.NOERROR: 
-						success ++
+						success.push(response[1])
 						break
 					case Rcode.NXDOMAIN:
-						nodomain ++
+						nodomain.push(response[1])
 						break
 					case 100:
-						serverNotConnected ++
+						notConnected.push(response[1])
 						break
 					default:
-						failure ++
+						failure.push(response[1])
 				}
 			}
 		}
 	}
 
 	void afterStop(List undeliveredMessages) {
-		println "success: $success "
-		println "domain not exists : $nodomain"
-		println "server not connected : $serverNotConnected"
-		println "failure: $failure "
+		def writeResult = {output, arrayList ->
+			new File(output).withWriter {writer ->
+				arrayList.each {writer.writeLine(it)}
+			}
+		}
+		writeResult('output/success.txt', success) 
+		writeResult('output/notConnected.txt', notConnected)
+		writeResult('output/nodomain.txt', nodomain)
+		writeResult('output/failure.txt', failure)
 	}
 }
 
@@ -45,7 +50,7 @@ class Querier extends DefaultActor {
 	Actor counter
 	
 	void act() {
-		counter << queryName('www.baidu.com', dnsServer)
+		counter << [queryName('www.baidu.com', dnsServer), dnsServer]
 	}
 
 	def queryName(String domainName, String server) {
@@ -60,7 +65,6 @@ class Querier extends DefaultActor {
 			try {
 				rcode = resolver.send(query).getRcode()
 				if (rcode == Rcode.NOERROR){
-					//println server
 					return rcode
 				}
 				retries--
@@ -84,7 +88,7 @@ class Querier extends DefaultActor {
 def timeStart = new Date()
 
 def master = new Master().start()
-final MAX_CONCURRENCY = args[0].toInteger()
+final MAX_CONCURRENCY = 5000 
 Actors.defaultActorPGroup.resize  MAX_CONCURRENCY*2
 def queue = []
 new File('test.txt').withReader {reader ->
